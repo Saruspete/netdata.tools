@@ -39,33 +39,27 @@ class NetdataAPI(object):
         self.host = host
         self.port = port
         self.path = path
-        self.api  = api
-
+        self.api = api
         self._url = self.geturl()
-
-
 
     def _query(self, query, outfile=None):
 
         # If we want to dump a file, use stream
         if outfile:
             # from https://stackoverflow.com/questions/16694907/
-            r = requests.get(self._url+query, stream=True)
+            r = requests.get(self._url + query, stream=True)
 
             with opensmart(outfile) as fh:
                 for chunk in r.iter_content(chunk_size=1024):
                     if chunk:
                         print(chunk.decode('utf8'), file=fh, end='')
-
         # else, just return the content as str
         else:
-            return requests.get(self._url+query).content
-
+            return requests.get(self._url + query).content
 
     def geturl(self):
         """ Get the backend url used for queries """
         return _API_URL_BASE.format(host=self.host, port=self.port, path=self.path, api=self.api)
-
 
     def extract(self, fromts=0, tots="", outdir=None, filtercharts=None):
 
@@ -80,10 +74,8 @@ class NetdataAPI(object):
 
             chartsdata = json.loads(chartsoutput)
 
-
-
             # Now, foreach chart, get its data
-            for chartname,chartdata in chartsdata.get('charts', []).items():
+            for chartname, chartdata in chartsdata.get('charts', []).items():
 
                 urlfmt = (
                     "/data?chart={0}&format=json"
@@ -96,30 +88,8 @@ class NetdataAPI(object):
 
                 self._query(url, outfile)
 
-
         except Exception as e:
             print(e)
-
-"""
-"snapshot_version": 1,
-"server": "http://'+self.host+':'+self.port+'/'+self.path+'",
-"hostname": "todo",
-"url": "' + self.geturl() +'",
-"netdata_version": "1234",
-"update_every_ms": 1000,
-"hash": "#",
-"highlight_after_ms": 0,
-"highlight_before_ms": 0,
-"compression": "none",
-"charts_ok": 999,
-"charts_failed": 0,
-"charts": ' + json.dumps(chartsjson) + ',
-"info": {},
-"data_points": 999,
-"data_size": "123456789,
-"data": {')
-"""
-
 
 
 if __name__ == "__main__":
@@ -132,17 +102,17 @@ if __name__ == "__main__":
     mydir = os.path.dirname(myself)
 
     # Default output folder
-    outdir = mydir + "/extracts/netdata_"  + datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-
+    outdir = mydir + "/extracts/netdata_" + datetime.datetime.now().strftime("%y%m%d_%H%M%S")
 
     # Parse arguments
     argsparser = argparse.ArgumentParser(description="Extract netdata values")
-    argsparser.add_argument('-H', '--host',   help="Target server to query", default=_API_DEF_HOST)
-    argsparser.add_argument('-P', '--port',   help="Port of target server",  default=_API_DEF_PORT, type=int)
+    argsparser.add_argument('-v', '--verbose', help="Increase verbosity", action='count')
+    argsparser.add_argument('-H', '--host', help="Target server to query", default=_API_DEF_HOST)
+    argsparser.add_argument('-P', '--port', help="Port of target server", default=_API_DEF_PORT, type=int)
     argsparser.add_argument('-S', '--subpath', help="Path to connect to host", default=_API_DEF_PATH)
     argsparser.add_argument('-o', '--outdir', help="Output folder to store data files", default=outdir)
-    argsparser.add_argument('-b', '--begin',  help="Timestamp of collection begin", default=0)
-    argsparser.add_argument('-e', '--end',    help="Timestamp of collection end", default='')
+    argsparser.add_argument('-b', '--begin', help="Timestamp of collection begin", default=0)
+    argsparser.add_argument('-e', '--end', help="Timestamp of collection end", default='')
 
     args = argsparser.parse_args()
 
@@ -156,4 +126,3 @@ if __name__ == "__main__":
     nd.extract(outdir=args.outdir)
 
     print(args.outdir)
-
