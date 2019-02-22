@@ -6,12 +6,18 @@ import sys
 import requests
 import json
 import contextlib
+import coloredlogs, logging
 
-_API_URL_BASE = 'http://{host}:{port}/{path}/api/v{api}/'
+logging.basicConfig(stream=sys.stderr, format='%(name)s (%(levelname)s): %(message)s')
+logger = logging.getLogger(__name__)
+#coloredlogs.install(level='DEBUG', logger=logger)
+
+
+_API_URL_BASE = 'http://{host}:{port}/{path}api/v{api}/'
 
 _API_DEF_HOST = "127.0.0.1"
 _API_DEF_PORT = 19999
-_API_DEF_PATH = "/"
+_API_DEF_PATH = ""
 _API_DEF_VERS = 1
 
 
@@ -44,9 +50,11 @@ class NetdataAPI(object):
 
     def _query(self, query, outfile=None):
 
+        logger.debug("Calling _query with query='{0}'".format(query))
         # If we want to dump a file, use stream
         if outfile:
             # from https://stackoverflow.com/questions/16694907/
+            logger.debug("Query '{0}' and store on file '{1}'".format(query, outfile))
             r = requests.get(self._url + query, stream=True)
 
             with opensmart(outfile) as fh:
@@ -55,6 +63,7 @@ class NetdataAPI(object):
                         print(chunk.decode('utf8'), file=fh, end='')
         # else, just return the content as str
         else:
+            logger.debug("Query '{0}'".format(query))
             return requests.get(self._url + query).content
 
     def geturl(self):
@@ -65,7 +74,8 @@ class NetdataAPI(object):
 
         # Extract the charts
         try:
-            chartsoutput = self._query("/charts")
+            chartsoutput = self._query("charts")
+            logger.debug("Retrieved charts: {0}".format(chartsoutput))
 
             # Write output file
             chartsfile = open(outdir + "/charts.json", "wb+")
@@ -74,16 +84,19 @@ class NetdataAPI(object):
 
             chartsdata = json.loads(chartsoutput)
 
+            logger.info("Downloading {0} charts".format(len(chartsdata.get('charts',[]))))
+
             # Now, foreach chart, get its data
             for chartname, chartdata in chartsdata.get('charts', []).items():
 
                 urlfmt = (
-                    "/data?chart={0}&format=json"
+                    "data?chart={0}&format=json"
                     "&group=average&gtime=0&points=0"
                     "&after={1}&before={2}&points={3}"
                 )
 
                 url = urlfmt.format(chartname, fromts, tots, '')
+
                 outfile = outdir + "/" + chartname + ".json"
 
                 self._query(url, outfile)
@@ -106,7 +119,7 @@ if __name__ == "__main__":
 
     # Parse arguments
     argsparser = argparse.ArgumentParser(description="Extract netdata values")
-    argsparser.add_argument('-v', '--verbose', help="Increase verbosity", action='count')
+    argsparser.add_argument('-v', '--verbose', help="Increase verbosity", action='count', default=0)
     argsparser.add_argument('-H', '--host', help="Target server to query", default=_API_DEF_HOST)
     argsparser.add_argument('-P', '--port', help="Port of target server", default=_API_DEF_PORT, type=int)
     argsparser.add_argument('-S', '--subpath', help="Path to connect to host", default=_API_DEF_PATH)
@@ -115,14 +128,22 @@ if __name__ == "__main__":
     argsparser.add_argument('-e', '--end', help="Timestamp of collection end", default='')
 
     args = argsparser.parse_args()
+    # Set log level to WARN going more verbose for each new -v
+    loglvl = max(3 - args.verbose, 0) * 10
+    logger.setLevel(loglvl)
+    coloredlogs.install(level=loglvl, logger=logger)
+
+
+    outdir = args.outdir
 
     # Call for extraction
     nd = NetdataAPI(host=args.host, port=args.port, path=args.subpath)
 
     # Create output folder
-    os.makedirs(outdir)
+    if not os.path.isdir(outdir):
+        os.makedirs(outdir)
 
     # Extract to requested dest
-    nd.extract(outdir=args.outdir)
+    nd.extract(outdir=outdir)
 
-    print(args.outdir)
+    print(outdir)
