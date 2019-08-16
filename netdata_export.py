@@ -446,12 +446,6 @@ if __name__ == "__main__":
 
 	args = argsparser.parse_args()
 
-	# Set log level to WARN going more verbose for each new -v
-	#loglvl = max(3 - args.verbose, 0) * 10
-	#logger.setLevel(loglvl)
-	#coloredlogs.install(level=loglvl, logger=logger)
-
-
 	# Call for extraction
 	nd = NetdataAPI(host=args.host, port=args.port, path=args.subpath)
 
