@@ -75,7 +75,6 @@ class NetdataAPI(object):
 
 
 	def filter_chart(self, filters, name):
-
 		# Check all items
 		for filter_rgx in filters:
 			if (re.match(filter_rgx, name)):
@@ -88,7 +87,7 @@ class NetdataAPI(object):
 		return False
 
 
-	def extract(self, fromts, tots, chartsfilter=None):
+	def extract(self, fromts, tots, chartsfilter=None, datacompress=True):
 
 		snapshot = "{"
 		header = """
@@ -110,6 +109,11 @@ class NetdataAPI(object):
 		"""
 
 		try:
+
+
+			#
+			# Generic information
+			#
 
 			# Load the global info about the server
 			global_info_str = self._query("info")
@@ -138,20 +142,40 @@ class NetdataAPI(object):
 				"comments": comments,
 			}
 
-			# Format the header
 			snapshot += textwrap.dedent(header.format(**header_data))
 
+			#
+			# Add the charts definitions
+			#
+			
+			# If there is a filter, apply it
+			if (len(chartsfilter)):
+				for chartname,chartdata in charts_info['charts'].items():
+					if (not self.filter_chart(chartsfilter, chartname)):
+						del charts_info['charts'][chartname]
 
-			# Add the charts details
-			charts_list = charts_info["charts"]
-			#snapshot += '"charts": ' + json.dumps(charts_list) + ','
+				# recalculate the values
+				charts_info['charts_count'] = 0
+				charts_info['dimensions_count'] = 0
+				charts_info['alarms_count'] = 0
+				for chartname,chartdata in charts_info['charts'].items():
+					charts_info['charts_count'] += 1
+					charts_info['dimensions_count'] += len(chartdata['dimensions'])
+					charts_info['alarms_count'] += len(chartdata['alarms'])
 
+			# Add the selected charts
 			snapshot += '"charts": ' + json.dumps(charts_info) + ",\n"
 			snapshot += '"charts_failed": 0,\n'
-			snapshot += '"charts_ok": ' + str(len(charts_list)) + ",\n"
+			snapshot += '"charts_ok": ' + str(len(charts_info['charts'])) + ",\n"
 
-			snapshot += '"compression": "pako.deflate.base64",\n'
-			#snapshot += '"compression": "none",\n'
+			#
+			# Add charts data
+			#
+			if (datacompress):
+				snapshot += '"compression": "pako.deflate.base64",\n'
+			else:
+				snapshot += '"compression": "none",\n'
+
 			snapshot += '"data": {\n'
 
 			# And dump the data
@@ -162,7 +186,7 @@ class NetdataAPI(object):
 			for chartname, chartinfo in charts_info.get('charts', []).items():
 
 				# Skip unmatching charts
-				if (not self.filter_chart(chartsfilter, chartname)):
+				if (len(chartsfilter) and not self.filter_chart(chartsfilter, chartname)):
 					continue
 
 
@@ -195,8 +219,10 @@ class NetdataAPI(object):
 				else:
 					snapshot += ",\n"
 				
-				snapshot += '"' + chartsnapkey + '": "' + base64.b64encode(zlib.compress(chartdatastr)) + '"'
-				#snapshot += '"' + chartsnapkey + '": "' + chartdatastr.replace('"', '\\"') + '"'
+				if (datacompress):
+					snapshot += '"' + chartsnapkey + '": "' + base64.b64encode(zlib.compress(chartdatastr)) + '"'
+				else:
+					snapshot += '"' + chartsnapkey + '": "' + chartdatastr.replace('"', '\\"') + '"'
 
 
 			# Add data ?? TODO !
@@ -214,208 +240,6 @@ class NetdataAPI(object):
 		except Exception as e:
 			print(e)
 			print(traceback.format_exc())
-
-
-# ===================== Resulting Snapshot wanted
-""" 
-Resulting snapshot should be
-{
-"after_ms": 1562337754500,
-"before_ms": 1562337782500,
-"charts": {
-	"alarms_count": 117,
-	"charts": {
-		"apps.cpu": {
-			"alarms": {},
-			"chart_type": "stacked",
-			"context": "apps.cpu",
-			"data_url": "/api/v1/data?chart=apps.cpu",
-			"dimensions": {
-				"VMs": {
-					"name": "VMs"
-				},
-				"X": {
-					"name": "X"
-				},
-				...
-			},
-			"duration": 3997,
-			"enabled": true,
-			"family": "cpu",
-			"first_entry": 1562330948,
-			"green": null,
-			"id": "apps.cpu",
-			"last_entry": 1562334944,
-			"menu": "apps",
-			"module": "",
-			"name": "apps.cpu",
-			"plugin": "apps.plugin",
-			"priority": 20001,
-			"red": null,
-			"submenu": "cpu",
-			"title": "Apps CPU Time (800% = 8 cores) (apps.cpu)",
-			"type": "apps",
-			"units": "percentage",
-			"update_every": 1
-		},
-	},
-	"charts_by_name": null,
-	"charts_count": 387,
-	"custom_info": "",
-	"dimensions_count": 2007,
-	"history": 3996,
-	"hostname": "munin",
-	"hosts": [
-		{
-			"hostname": "munin"
-		}
-	],
-	"hosts_count": 1,
-	"os": "linux",
-	"release_channel": "nightly",
-	"rrd_memory_bytes": 34802208,
-	"timezone": "Europe/Paris",
-	"update_every": 1,
-	"version": "v1.15.0"
-},
-"charts_failed": 6,
-"charts_ok": 424,
-"comments": "",
-
-"compression": "pako.deflate.base64",
-"data": {
-	"apps.cpu,dygraph,null,ms%7Cflip%7Cjsonwrap%7Cnonzero": "base64encodedstirng......."
-},
-"data_points": 3,
-"data_size": 179904,
-"duration_ms": 28000,
-"hash": "#menu_pcm_submenu_System_CPU_Frequency",
-"highlight_after_ms": 0,
-"highlight_before_ms": 0,
-"hostname": "munin",
-"info": "{\"menu\":{\"system\":{\"title\":\"System Overview\",\"icon\":\"<i class=\\\"fas fa-bookmark\\\"></i>\",\"info\":\"Overview of the key system metrics.\"},\"services\":{\"title\":\"systemd Services\",\"icon\":\"<i class=\\\"fas fa-cogs\\\"></i>\",\"info\":\"Resources utilization of systemd services. netdata monitors all systemd services via CGROUPS (the resources accounting used by containers). \"},\"ap\":{\"title\":\"Access Points\",\"icon\":\"<i class=\\\"fas fa-wifi\\\"></i>\",\"info\":\"Performance metrics for the access points (i.e. wireless interfaces in AP mode) found on the system.\"},\"tc\":{\"title\":\"Quality of Service\",\"icon\":\"<i class=\\\"fas fa-globe\\\"></i>\",\"info\":\"Netdata collects and visualizes <code>tc</code> class utilization using its <a href=\\\"https://github.com/netdata/netdata/blob/master/collectors/tc.plugin/tc-qos-helper.sh.in\\\" target=\\\"_blank\\\">tc-helper plugin</a>. If you also use <a href=\\\"http://firehol.org/#fireqos\\\" target=\\\"_blank\\\">FireQOS</a> for setting up QoS, netdata automatically collects interface and class names. If your QoS configuration includes overheads calculation, the values shown here will include these overheads (the total bandwidth for the same interface as reported in the Network Interfaces section, will be lower than the total bandwidth reported here). QoS data collection may have a slight time difference compared to the interface (QoS data collection uses a BASH script, so a shift in data collection of a few milliseconds should be justified).\"},\"net\":{\"title\":\"Network Interfaces\",\"icon\":\"<i class=\\\"fas fa-sitemap\\\"></i>\",\"info\":\"Performance metrics for network interfaces.\"},\"ip\":{\"title\":\"Networking Stack\",\"icon\":\"<i class=\\\"fas fa-cloud\\\"></i>\",\"info\":\"function (os) {\\n			if(os === \\\"linux\\\")\\n				return 'Metrics for the networking stack of the system. These metrics are collected from <code>/proc/net/netstat</code>, apply to both IPv4 and IPv6 traffic and are related to operation of the kernel networking stack.';\\n			else\\n				return 'Metrics for the networking stack of the system.';\\n		}\"},\"ipv4\":{\"title\":\"IPv4 Networking\",\"icon\":\"<i class=\\\"fas fa-cloud\\\"></i>\",\"info\":\"Metrics for the IPv4 stack of the system. <a href=\\\"https://en.wikipedia.org/wiki/IPv4\\\" target=\\\"_blank\\\">Internet Protocol version 4 (IPv4)</a> is the fourth version of the Internet Protocol (IP). It is one of the core protocols of standards-based internetworking methods in the Internet. IPv4 is a connectionless protocol for use on packet-switched networks. It operates on a best effort delivery model, in that it does not guarantee delivery, nor does it assure proper sequencing or avoidance of duplicate delivery. These aspects, including data integrity, are addressed by an upper layer transport protocol, such as the Transmission Control Protocol (TCP).\"},\"ipv6\":{\"title\":\"IPv6 Networking\",\"icon\":\"<i class=\\\"fas fa-cloud\\\"></i>\",\"info\":\"Metrics for the IPv6 stack of the system. <a href=\\\"https://en.wikipedia.org/wiki/IPv6\\\" target=\\\"_blank\\\">Internet Protocol version 6 (IPv6)</a> is the most recent version of the Internet Protocol (IP), the communications protocol that provides an identification and location system for computers on networks and routes traffic across the Internet. IPv6 was developed by the Internet Engineering Task Force (IETF) to deal with the long-anticipated problem of IPv4 address exhaustion. IPv6 is intended to replace IPv4.\"},\"sctp\":{\"title\":\"SCTP Networking\",\"icon\":\"<i class=\\\"fas fa-cloud\\\"></i>\",\"info\":\"<a href=\\\"https://en.wikipedia.org/wiki/Stream_Control_Transmission_Protocol\\\" target=\\\"_blank\\\">Stream Control Transmission Protocol (SCTP)</a> is a computer network protocol which operates at the transport layer and serves a role similar to the popular protocols TCP and UDP. SCTP provides some of the features of both UDP and TCP: it is message-oriented like UDP and ensures reliable, in-sequence transport of messages with congestion control like TCP. It differs from those protocols by providing multi-homing and redundant paths to increase resilience and reliability.\"},.........
-"netdata_version": "v1.15.0",
-"server": "http://127.0.0.1:19999/",
-"snapshot_version": 1,
-"update_every_ms": 1000,
-"url": "http://127.0.0.1:19999/"
-}
-"""
-
-
-# ================ /info
-"""
-
-
-"""
-
-
-# ================ /charts
-#
-# Additionnal options are provided in the HTML
-# <div class="netdata-container-easypiechart" style="margin-right: 10px; width: 9%; will-change: auto;" data-netdata="system.swap" data-dimensions="used" data-append-options="percentage" data-chart-library="easypiechart" data-title="Used Swap" data-units="%" data-easypiechart-max-value="100" data-width="9%" data-before="0" data-after="-480" data-points="480" data-colors="#DD4400" role="application">
-"""
-	"hostname": "munin",
-	"version": "v1.15.0",
-	"release_channel": "nightly",
-	"os": "linux",
-	"timezone": "Europe/Paris",
-	"update_every": 1,
-	"history": 3996,
-	"custom_info": "",
-	"charts": {
-		"disk_qops.dm-5": 		{
-			"id": "disk_qops.dm-5",
-			"name": "disk_qops.munin_swap",
-			"type": "disk_qops",
-			"family": "munin-swap",
-			"context": "disk.qops",
-			"title": "Disk Current I/O Operations (disk_qops.munin_swap)",
-			"priority": 2002,
-			"plugin": "proc.plugin",
-			"module": "/proc/diskstats",
-			"enabled": true,
-			"units": "operations",
-			"data_url": "/api/v1/data?chart=disk_qops.munin_swap",
-			"chart_type": "line",
-			"duration": 3997,
-			"first_entry": 1565907012,
-			"last_entry": 1565911008,
-			"update_every": 1,
-			"dimensions": {
-				"operations": { "name": "operations" }
-			},
-			"green": null,
-			"red": null,
-			"alarms": {}
-		},
-	},
-	"charts_count": 386,
-	"dimensions_count": 1986,
-	"alarms_count": 118,
-	"rrd_memory_bytes": 34453184,
-	"hosts_count": 1,
-	"hosts": [
-		{
-			"hostname": "munin"
-		}
-	]
-}
-"""
-
-# ================ /data
-
-# Query
-"""
-chart=netdata.plugin_proc_cpu
-format=json
-group=average
-gtime=0
-options=ms%7Cflip%7Cjsonwrap%7Cnonzero
-after=1562337755
-before=1562337783
-_=1562334945610
-"""
-
-# Result
-"""
-{
-   "api": 1,
-   "id": "system.cpu",
-   "name": "system.cpu",
-   "view_update_every": 1,
-   "update_every": 1,
-   "first_entry": 1565955506,
-   "last_entry": 1565959502,
-   "before": 1565959502,
-   "after": 1565959493,
-   "dimension_names": ["guest_nice", "guest", "steal", "softirq", "irq", "user", "system", "nice", "iowait"],
-   "dimension_ids": ["guest_nice", "guest", "steal", "softirq", "irq", "user", "system", "nice", "iowait"],
-   "latest_values": [0, 0, 0, 0.3768844, 0.879397, 5.4020101, 2.5125628, 0, 0],
-   "view_latest_values": [0, 0, 0, 0.3768844, 0.879397, 5.40201, 2.512563, 0, 0],
-   "dimensions": 9,
-   "points": 10,
-   "format": "json",
-   "result": {
- "labels": ["time", "guest_nice", "guest", "steal", "softirq", "irq", "user", "system", "nice", "iowait"],
-    "data":
- [
-      [ 1565959502, 0, 0, 0, 0.3768844, 0.879397, 5.40201, 2.512563, 0, 0],
-      [ 1565959501, 0, 0, 0, 0.375, 0.75, 8, 2.375, 0, 0],
-      [ 1565959500, 0, 0, 0, 0.3773585, 1.0062893, 6.037736, 2.641509, 0.1257862, 0.2515723],
-      [ 1565959499, 0, 0, 0, 0.3764115, 0.7528231, 8.406524, 2.007528, 0, 0],
-      [ 1565959498, 0, 0, 0, 0.2506266, 0.877193, 7.64411, 2.631579, 0, 0],
-      [ 1565959497, 0, 0, 0, 0.3778338, 0.8816121, 7.178841, 2.518892, 0, 0],
-      [ 1565959496, 0, 0, 0, 0.3773585, 1.0062893, 5.408805, 2.264151, 0, 0],
-      [ 1565959495, 0, 0, 0, 0.3773585, 0.8805031, 6.918239, 2.389937, 0, 0.1257862],
-      [ 1565959494, 0, 0, 0, 0.3764115, 0.7528231, 9.284818, 2.50941, 0, 0.1254705],
-      [ 1565959493, 0, 0, 0, 0.3759398, 0.877193, 7.518797, 2.756892, 0, 0]
-  ]
-},
- "min": 0,
- "max": 9.284818
-}
-"""
 
 
 if __name__ == "__main__":
@@ -440,7 +264,7 @@ if __name__ == "__main__":
 	# Netdata data filtering
 	argsparser.add_argument('-b', '--begin', help="Timestamp of collection begin", default=-600, type=int)
 	argsparser.add_argument('-e', '--end', help="Timestamp of collection end", default=0, type=int)
-	argsparser.add_argument('-c', '--charts', help="Filter (regex) charts to export. Prefix with '!' to negate pattern", default=[".+"], action='append')
+	argsparser.add_argument('-c', '--charts', help="Filter (regex) charts to export. Prefix with '!' to negate pattern", default=[], action='append')
 	# Output
 	argsparser.add_argument('-o', '--outfile', help="Output snapshot file", default=outfile)
 
