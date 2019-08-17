@@ -77,12 +77,16 @@ class NetdataAPI(object):
 	def filter_chart(self, filters, name):
 		# Check all items
 		for filter_rgx in filters:
+			foundreturns = True
+			# Negated pattern
+			if (filter_rgx[:1] == '!'):
+				filter_rgx = filter_rgx[1:]
+				foundreturns = False
+
+			# Check for match
 			if (re.match(filter_rgx, name)):
-				if (filter_rgx[:1] == '!'):
-					return False
-				else:
-					return True
-		
+				return foundreturns
+
 		# If notthing has matched, return false
 		return False
 
