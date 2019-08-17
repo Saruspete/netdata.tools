@@ -10,14 +10,11 @@ import logging
 import traceback
 import textwrap
 import re
-
 import zlib
 import base64
 
 logging.basicConfig(stream=sys.stderr, format='%(name)s (%(levelname)s): %(message)s')
 logger = logging.getLogger(__name__)
-#coloredlogs.install(level='DEBUG', logger=logger)
-
 
 _API_URL_BASE = 'http://{host}:{port}/{path}api/v{api}/'
 
@@ -73,7 +70,6 @@ class NetdataAPI(object):
 		""" Get the backend url used for queries """
 		return _API_URL_BASE.format(host=self.host, port=self.port, path=self.path, api=self.api)
 
-
 	def filter_chart(self, filters, name):
 		# Check all items
 		for filter_rgx in filters:
@@ -89,7 +85,6 @@ class NetdataAPI(object):
 
 		# If notthing has matched, return false
 		return False
-
 
 	def extract(self, fromts, tots, chartsfilter=None, datacompress=True):
 
@@ -114,7 +109,6 @@ class NetdataAPI(object):
 
 		try:
 
-
 			#
 			# Generic information
 			#
@@ -128,17 +122,15 @@ class NetdataAPI(object):
 			charts_info_str = self._query("charts")
 			charts_info = json.loads(charts_info_str)
 
-
 			header_data = {
 				# Time arguments
-				"time_after":     fromts * 1000,
-				"time_before":    tots * 1000,
-				"time_duration":  (tots - fromts) * 1000,
+				"time_after": fromts * 1000,
+				"time_before": tots * 1000,
+				"time_duration": (tots - fromts) * 1000,
 				"time_samplerate": charts_info["update_every"] * 1000,
-				# 
+				# Version and host info
 				"netdata_version": global_info["version"],
-				"netdata_host":    charts_info["hostname"],
-				# URLs
+				"netdata_host": charts_info["hostname"],
 				"url": self.geturl(),
 				"url_hash": "#",
 				"url_server": self.host,
@@ -151,10 +143,10 @@ class NetdataAPI(object):
 			#
 			# Add the charts definitions
 			#
-			
+
 			# If there is a filter, apply it
 			if (len(chartsfilter)):
-				for chartname,chartdata in charts_info['charts'].items():
+				for chartname, chartdata in charts_info['charts'].items():
 					if (not self.filter_chart(chartsfilter, chartname)):
 						del charts_info['charts'][chartname]
 
@@ -162,7 +154,7 @@ class NetdataAPI(object):
 				charts_info['charts_count'] = 0
 				charts_info['dimensions_count'] = 0
 				charts_info['alarms_count'] = 0
-				for chartname,chartdata in charts_info['charts'].items():
+				for chartname, chartdata in charts_info['charts'].items():
 					charts_info['charts_count'] += 1
 					charts_info['dimensions_count'] += len(chartdata['dimensions'])
 					charts_info['alarms_count'] += len(chartdata['alarms'])
@@ -193,7 +185,6 @@ class NetdataAPI(object):
 				if (len(chartsfilter) and not self.filter_chart(chartsfilter, chartname)):
 					continue
 
-
 				options = ["ms", "flip", "jsonwrap", "nonzero"]
 				optionsstr = "%7C".join(options)
 
@@ -208,35 +199,34 @@ class NetdataAPI(object):
 				url = urlfmt.format(chart=chartname, time_from=fromts, time_to=tots, points='', options=optionsstr)
 				chartdatastr = self._query(url)
 				chartdatastr = re.sub(r'[\t\n\r ]*', '', chartdatastr)
-				
+
 				data_size += len(chartdatastr)
 				data_count += 1
 				data_points += len(chartinfo['dimensions'].keys())
 
-				# apps.cpu,dygraph,null,ms%7Cflip%7Cjsonwrap%7Cnonzero": 
+				# apps.cpu,dygraph,null,ms%7Cflip%7Cjsonwrap%7Cnonzero":
 				# Selection of options is from web/gui/src/dashboard.js/main.js:3090
-				chartsnapkey = chartinfo["id"]+",dygraph,null," + optionsstr
-				
+				chartsnapkey = chartinfo["id"] + ",dygraph,null," + optionsstr
+
 				# Will prepend the ,\n on 2+
 				if (is_first):
 					is_first = 0
 				else:
 					snapshot += ",\n"
-				
+
 				if (datacompress):
 					snapshot += '"' + chartsnapkey + '": "' + base64.b64encode(zlib.compress(chartdatastr)) + '"'
 				else:
 					snapshot += '"' + chartsnapkey + '": "' + chartdatastr.replace('"', '\\"') + '"'
-
 
 			# Add data ?? TODO !
 			snapshot += "\n},\n"
 
 			snapshot += '"data_points": {points},\n'.format(points=data_points)
 			snapshot += '"data_size": {size}\n'.format(size=data_size)
-			
+
 			# Finally, More info from gui (web/gui/dashboard_info.js
-			#snapshot += '"info": undefined'
+			# snapshot += '"info": undefined'
 			snapshot += "}"
 
 			print(textwrap.dedent(snapshot))
