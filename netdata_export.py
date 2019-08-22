@@ -12,6 +12,7 @@ import textwrap
 import re
 import zlib
 import base64
+import time
 
 logging.basicConfig(stream=sys.stderr, format='%(name)s (%(levelname)s): %(message)s')
 logger = logging.getLogger(__name__)
@@ -51,12 +52,17 @@ class NetdataAPI(object):
 		self.api = api
 		self._url = self.geturl()
 
+		self.data_sep = '%7C'
+
 	def _query(self, query, outfile=None):
+
+		url = self._url + query
+		logging.debug("Fetching '%s'", url)
 
 		# If we want to dump a file, use stream
 		if outfile:
 			# from https://stackoverflow.com/questions/16694907/
-			r = requests.get(self._url + query, stream=True)
+			r = requests.get(url, stream=True)
 
 			with opensmart(outfile) as fh:
 				for chunk in r.iter_content(chunk_size=1024):
@@ -64,7 +70,7 @@ class NetdataAPI(object):
 						print(chunk.decode('utf8'), file=fh, end='')
 		# else, just return the content as str
 		else:
-			return requests.get(self._url + query).content
+			return requests.get(url).content
 
 	def geturl(self):
 		""" Get the backend url used for queries """
@@ -95,7 +101,7 @@ class NetdataAPI(object):
 			"duration_ms": {time_duration},
 			"update_every_ms": {time_samplerate},
 			"highlight_after_ms": 0,
-			"highlight_beofre_ms": 0,
+			"highlight_before_ms": 0,
 
 			"url": "{url}",
 			"hash": "{url_hash}",
@@ -114,29 +120,50 @@ class NetdataAPI(object):
 			#
 
 			# Load the global info about the server
-			global_info_str = self._query("info")
-			global_info = json.loads(global_info_str)
+			global_info = {}
+			try:
+				global_info_str = self._query("info")
+				global_info = json.loads(global_info_str)
+			except:
+				pass
+
 			comments = json.dumps(global_info).replace('"', '\\"')
 
 			# Load the charts listing
 			charts_info_str = self._query("charts")
 			charts_info = json.loads(charts_info_str)
+			fromms = fromts * 1000
+			toms = tots * 1000
+
+			# Zero or negative: relative to now
+			if toms <= 0:
+				toms = int(time.time() * 1000)
+
+			# Negative value
+			if fromms < 0:
+				fromms = toms + fromms
+
 
 			header_data = {
 				# Time arguments
-				"time_after": fromts * 1000,
-				"time_before": tots * 1000,
-				"time_duration": (tots - fromts) * 1000,
+				"time_after": fromms,
+				"time_before": toms,
+				"time_duration": (toms - fromms),
 				"time_samplerate": charts_info["update_every"] * 1000,
 				# Version and host info
-				"netdata_version": global_info["version"],
+				"netdata_version": global_info.get("version", "v1.10 (or older)"),
 				"netdata_host": charts_info["hostname"],
 				"url": self.geturl(),
-				"url_hash": "#",
+				"url_hash": "#menu_system_submenu;after={after};before={before};theme=slate"
+					.format(after=fromms, before=toms),
 				"url_server": self.host,
 				# Snapshot detail
 				"comments": comments,
 			}
+
+			# Older versions doesn't urlencode the '|' as separator
+			if not global_info.get("version", None):
+				self.data_sep = '|'
 
 			snapshot += textwrap.dedent(header.format(**header_data))
 
@@ -186,7 +213,7 @@ class NetdataAPI(object):
 					continue
 
 				options = ["ms", "flip", "jsonwrap", "nonzero"]
-				optionsstr = "%7C".join(options)
+				optionsstr = self.data_sep.join(options)
 
 				# Now, foreach chart, get its data
 				urlfmt = (
