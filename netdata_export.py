@@ -92,7 +92,7 @@ class NetdataAPI(object):
 		# If notthing has matched, return false
 		return False
 
-	def extract(self, fromts, tots, chartsfilter=None, datacompress=True):
+	def extract_dashboard(self, fromts, tots, chartsfilter=None, datacompress=True, outfile=None):
 
 		snapshot = "{"
 		header = """
@@ -225,7 +225,7 @@ class NetdataAPI(object):
 
 				url = urlfmt.format(chart=chartname, time_from=fromts, time_to=tots, points='', options=optionsstr)
 				chartdatastr = self._query(url)
-				chartdatastr = re.sub(r'[\t\n\r ]*', '', chartdatastr)
+				chartdatastr = re.sub(r'[\t\n\r ]*', '', chartdatastr.decode('utf8'))
 
 				data_size += len(chartdatastr)
 				data_count += 1
@@ -242,7 +242,7 @@ class NetdataAPI(object):
 					snapshot += ",\n"
 
 				if (datacompress):
-					snapshot += '"' + chartsnapkey + '": "' + base64.b64encode(zlib.compress(chartdatastr)) + '"'
+					snapshot += '"' + chartsnapkey + '": "' + base64.b64encode(zlib.compress(chartdatastr.encode('utf8'))).decode('utf8') + '"'
 				else:
 					snapshot += '"' + chartsnapkey + '": "' + chartdatastr.replace('"', '\\"') + '"'
 
@@ -256,12 +256,72 @@ class NetdataAPI(object):
 			# snapshot += '"info": undefined'
 			snapshot += "}"
 
-			print(textwrap.dedent(snapshot))
+			# Output to file directly
+			if outfile:
+				with opensmart(outfile) as fh:
+					print(snapshot, file=fh, end='')
+			# Output to stdout
+			else:
+				print(textwrap.dedent(snapshot))
 
 		except Exception as e:
 			print(e)
 			print(traceback.format_exc())
 
+
+	def extract_csv(self, fromts, tots, chartsfilter=None, datacompress=True, outfile=None):
+		try:
+			charts_info_str = self._query("charts")
+			charts_info = json.loads(charts_info_str)
+
+			# Zero or negative: relative to now
+			if tots <= 0:
+				tots = int(time.time())
+
+			# Negative value
+			if fromts < 0:
+				fromts = tots + fromts
+
+			# If there is a filter, apply it
+			if (len(chartsfilter)):
+				for chartname, chartdata in charts_info['charts'].items():
+					if (not self.filter_chart(chartsfilter, chartname)):
+						del charts_info['charts'][chartname]
+
+			for chartname, chartinfo in charts_info.get('charts', []).items():
+
+				# Skip unmatching charts
+				if (len(chartsfilter) and not self.filter_chart(chartsfilter, chartname)):
+					continue
+
+				options = ["flip", "nonzero"]
+				optionsstr = self.data_sep.join(options)
+
+				# Now, foreach chart, get its data
+				urlfmt = (
+					"data?chart={chart}&format=csv"
+					"&group=average&gtime=0&points=0"
+					"&after={time_from}&before={time_to}&points={points}"
+					"&options={options}"
+				)
+
+				url = urlfmt.format(chart=chartname, time_from=fromts, time_to=tots, points='', options=optionsstr)
+				chartdatastr = self._query(url)
+				chartdatastr = re.sub(r'(\r\n)', "\n", chartdatastr.decode('utf8'))
+
+				# Output current chart to file directly
+				if outfile:
+					if not os.path.exists(outfile):
+						os.makedirs(outfile)
+
+					with opensmart(outfile + "/" + chartname + ".csv") as fh:
+						print(chartdatastr, file=fh, end='')
+				else:
+					print(chartdatastr)
+
+		except Exception as e:
+			print(e)
+			print(traceback.format_exc())
 
 if __name__ == "__main__":
 
@@ -274,6 +334,7 @@ if __name__ == "__main__":
 
 	# Default output folder
 	outfile = mydir + "/extracts/netdata_" + datetime.datetime.now().strftime("%y%m%d_%H%M%S") + ".snapshot"
+	outformat = "dashboard"
 
 	# Parse arguments
 	argsparser = argparse.ArgumentParser(description="Extract netdata values")
@@ -288,10 +349,26 @@ if __name__ == "__main__":
 	argsparser.add_argument('-c', '--charts', help="Filter (regex) charts to export. Prefix with '!' to negate pattern", default=[], action='append')
 	# Output
 	argsparser.add_argument('-o', '--outfile', help="Output snapshot file", default=outfile)
+	argsparser.add_argument('-f', '--format', help="Output format. Can be: 'dashboard' 'json' or 'csv'", default=outformat)
 
 	args = argsparser.parse_args()
 
 	# Call for extraction
 	nd = NetdataAPI(host=args.host, port=args.port, path=args.subpath)
 
-	nd.extract(fromts=args.begin, tots=args.end, chartsfilter=args.charts)
+	outformats = {
+		"dashboard": nd.extract_dashboard,
+		"csv":       nd.extract_csv
+	}
+
+	# Create folder if not existing
+	outdir = os.path.dirname(outfile)
+	if not os.path.exists(outdir):
+		os.makedirs(outdir)
+
+	if (outformats.get(args.format)):
+		outformats[args.format](fromts=args.begin, tots=args.end, chartsfilter=args.charts, outfile=args.outfile)
+	else:
+		print("Error: Invalid format '"+args.format+"'. Must be one of: " + " ".join(outformats.keys()));
+
+	#nd.extract(fromts=args.begin, tots=args.end, chartsfilter=args.charts)
